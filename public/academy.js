@@ -121,6 +121,18 @@ function renderTutorRich(content,target){
  const code=[];let text=raw.replace(/```([^\n`]*)\n([\s\S]*?)```/g,(_,lang,body)=>{
   const id='SHMCODETOKEN'+code.length+'END';code.push('<pre><code>'+escapeTutorHTML(body)+'</code></pre>');return id;
  });
+ // Gemini sometimes sends bare TeX (no $ delimiters), e.g. \omega = \sqrt{\frac{k}{m}}.
+ // Normalize ONLY standalone math lines, not regular prose, code blocks or existing delimited math.
+ // Run before the markdown parser, otherwise Markdown treats backslashes as escapes.
+ text=text.split('\n').map(line=>{
+  const t=line.trim();
+  if(!t || /^(```|SHMCODETOKEN|\$|\\\(|\\\[)/.test(t))return line;
+  const bareCommand=/^\\(?:omega|alpha|beta|gamma|Delta|varphi|phi|theta|pi|sqrt|frac|left|text|mathrm|begin|sin|cos|tan|sum|int)\b/.test(t);
+  const bareEquation=/^(?:[A-Za-z][A-Za-z0-9_{}^]*(?:\\?_[A-Za-z0-9{}]+)?|[ωΩαβφθπ])\s*=/.test(t)
+      && /\\(?:frac|sqrt|omega|pi|text|mathrm|sin|cos|left|right|times|cdot|begin)\b/.test(t);
+  if((bareCommand||bareEquation)&&/\\[A-Za-z]+/.test(t))return '$$'+t+'$$';
+  return line;
+ }).join('\n');
  // MathJax formats: $$...$$, \\[...\\], \\(...\\), $...$ (single-line).
  text=text.replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([^\n]+?)\\\)|(?<!\$)\$([^\n$]+?)\$(?!\$)/g,
  (_,a,b,c,d)=>stash(a??b??c??d,a!==undefined||b!==undefined));
