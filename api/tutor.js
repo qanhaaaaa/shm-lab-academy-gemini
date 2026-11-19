@@ -1,6 +1,7 @@
 "use strict";
 // Springy Tutor - Google Gemini server-side only. Never expose GEMINI_API_KEY to the browser.
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const GEMINI_TIMEOUT_MS = 55000; // Free-tier responses may take longer on complex tasks.
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -34,6 +35,8 @@ function rateAllowed(req) {
   return true;
 }
 function checkPhysics(s) {
+  // A simple spring-only formula is NOT sufficient for collision/combined-body problems.
+  if(/va chạm|dính vào|động lượng|ghép vật|hai vật|thêm vật|vật thứ hai/i.test(String(s)))return null;
   const m=String(s).match(/(?:\bm\b|khối lượng)\s*(?:=|là|:)\s*(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
   const k=String(s).match(/(?:\bk\b|độ cứng)\s*(?:=|là|:)\s*(\d+(?:[.,]\d+)?)\s*(n\s*\/\s*m)/i);
   if(!m||!k)return null;
@@ -91,14 +94,17 @@ async function handler(req,res) {
     const verified=checkPhysics(problem);
     const parts=[{text:`Đề bài: ${problem || '(hãy đọc đề bài trong ảnh)'}\nChế độ học: ${modes[input.mode]||modes.full}\n${verified?`Dữ kiện kiểm chứng bằng JavaScript, CHỈ áp dụng nếu giả thiết con lắc lý tưởng thích hợp: omega=${verified.omega.toFixed(8)} rad/s, T=${verified.period.toFixed(8)} s.`:''}`}];
     if(image)parts.push(image);
-    const payload={systemInstruction:{parts:[{text:knowledge}]},contents:[{role:'user',parts}],generationConfig:{temperature:0.2,maxOutputTokens:2200}};
+    const generationConfig={temperature:0.2,maxOutputTokens:1600};
+    // Keep reasoning bounded for faster responses on the 2.5 family.
+    if(/^gemini-2\.5-/.test(MODEL))generationConfig.thinkingConfig={thinkingBudget:512};
+    const payload={systemInstruction:{parts:[{text:knowledge+'\nTrình bày Markdown ngắn gọn, dùng LaTeX dạng \( ... \) cho công thức trong dòng và \[ ... \] cho công thức đứng riêng. Tối đa khoảng 1100 từ. Chia theo từng yêu cầu a,b,c...; với câu vận dụng cao hãy giải đúng mô hình trước khi thay số.'}]},contents:[{role:'user',parts}],generationConfig};
     const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),35000);
+    const timeout=setTimeout(()=>controller.abort(),GEMINI_TIMEOUT_MS);
     let response;
     try {
       response=await fetch(`${GEMINI_ENDPOINT}${encodeURIComponent(MODEL)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},body:JSON.stringify(payload),signal:controller.signal});
     } catch(e) {
-      if(e?.name==='AbortError')return reply(res,504,{error:'Gemini phản hồi quá lâu (35 giây). Vui lòng thử lại.',code:'GEMINI_TIMEOUT'});
+      if(e?.name==='AbortError')return reply(res,504,{error:'Gemini chưa phản hồi trong 55 giây. Bài dài hoặc model Free Tier có thể đang chậm; hãy thử lại, chia bài thành từng ý hoặc chọn chế độ Gợi ý.',code:'GEMINI_TIMEOUT'});
       return reply(res,502,{error:'Không kết nối được tới máy chủ Gemini. Vui lòng thử lại.',code:'GEMINI_NETWORK'});
     } finally {clearTimeout(timeout);}
     let data;

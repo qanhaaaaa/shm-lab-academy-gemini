@@ -58,6 +58,18 @@ document.querySelectorAll('[data-academy-nav]').forEach(b=>b.onclick=()=>navigat
 let latestParams=null;let imgData=null;
 el('tutorImage').addEventListener('change',async e=>{const file=e.target.files[0];imgData=null;if(!file){el('tutorFileName').textContent='';return;}if(!/^image\/(png|jpeg|webp)$/.test(file.type)||file.size>4*1024*1024){e.target.value='';el('tutorFileName').textContent='Vui lòng chọn ảnh PNG/JPEG/WEBP dưới 4 MB.';return;}imgData=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(file);});el('tutorFileName').textContent='Đã chọn: '+file.name;});
 function offlineSolve(problem,mode){
+ // Never apply simple one-body SHM assumptions to multi-body collisions.
+ if(/va chạm|dính vào|động lượng|ghép vật|hai vật|thêm vật|vật thứ hai/i.test(problem)){
+  latestParams=null;
+  return `### Không thể giải bài va chạm bằng bộ công thức offline cơ bản
+
+Đây là **bài toán hai giai đoạn**: 
+
+1. **Trong va chạm mềm:** sử dụng bảo toàn động lượng theo phương va chạm nếu ngoại lực có xung lượng không đáng kể.
+2. **Sau va chạm:** dùng khối lượng ghép và bảo toàn cơ năng trong quá trình dao động (không áp dụng bảo toàn cơ năng cho chính va chạm mềm).
+
+Springy **chưa tính đáp án** vì Gemini đang không phản hồi. Hãy thử lại hoặc tách đề thành từng ý; không nên dùng chu kỳ được tính từ riêng vật $M$ làm đáp án cho hệ sau va chạm.`;
+ }
  const lower=problem.toLowerCase().replace(/\u00a0/g,' ');
  const m=lower.match(/(?:\bm\b|khối lượng)\s*(?:=|là|:)\s*(\d+(?:[.,]\d+)?)\s*(kg|g)\b/i);
  const k=lower.match(/(?:\bk\b|độ cứng)\s*(?:=|là|:)\s*(\d+(?:[.,]\d+)?)\s*(n\s*\/\s*m)\b/i);
@@ -67,9 +79,9 @@ function offlineSolve(problem,mode){
   if(mass<=0||stiff<=0){latestParams=null;return 'Khối lượng m và độ cứng k phải lớn hơn 0.';}
   const T=2*Math.PI*Math.sqrt(mass/stiff),w=Math.sqrt(stiff/mass),f=1/T;
   latestParams={mass:mass*1000,k:stiff};
-  if(mode==='guide')return `♡ Gợi ý:\n1. Đổi ${fmt(mass*1000,2)} g = ${fmt(mass,4)} kg.\n2. Tính ω = √(k/m).\n3. Từ ω, suy ra T = 2π/ω và f = 1/T.\nHãy thử làm rồi chuyển sang “Giải chi tiết” để đối chiếu.`;
+  if(mode==='guide')return `### ♡ Gợi ý\n1. Đổi $m = ${fmt(mass*1000,2)}\\,\\mathrm{g} = ${fmt(mass,4)}\\,\\mathrm{kg}$.\n2. Tính $\\omega=\\sqrt{k/m}$.\n3. Suy ra $T=2\\pi/\\omega$ và $f=1/T$.\n\nHãy tự làm trước khi xem giải chi tiết.`;
   if(mode==='check')return `Bạn chưa cung cấp lời giải của mình để Springy kiểm tra. Hãy dán thêm từng bước làm bài.\nKết quả kiểm chứng bằng công thức: ω ≈ ${fmt(w,4)} rad/s; T ≈ ${fmt(T,4)} s; f ≈ ${fmt(f,4)} Hz.`;
-  return `TÓM TẮT: m = ${fmt(mass,4)} kg, k = ${fmt(stiff,3)} N/m; bỏ qua ma sát.\nBƯỚC 1 – Công thức: ω = √(k/m); T = 2π/ω; f = 1/T.\nBƯỚC 2 – Tần số góc: ω = √(${fmt(stiff,3)}/${fmt(mass,4)}) ≈ ${fmt(w,4)} rad/s.\nBƯỚC 3 – Chu kỳ: T = 2π/${fmt(w,4)} ≈ ${fmt(T,4)} s.\nBƯỚC 4 – Tần số: f = 1/${fmt(T,4)} ≈ ${fmt(f,4)} Hz.\nGIẢI THÍCH: Cùng độ cứng, m tăng thì chu kỳ tăng; cùng m, k tăng thì chu kỳ giảm.\nĐây là bộ giải công thức OFFLINE, không phải AI ngôn ngữ; muốn giải bài nâng cao/đọc ảnh cần API.`;
+  return `### Tóm tắt\n- $m=${fmt(mass,4)}\\,\\mathrm{kg}$\n- $k=${fmt(stiff,3)}\\,\\mathrm{N/m}$\n\n### Bước 1: Công thức\n\n$$\\omega=\\sqrt{\\frac{k}{m}},\\quad T=\\frac{2\\pi}{\\omega},\\quad f=\\frac1T$$\n\n### Bước 2: Thay số\n\n$$\\omega=\\sqrt{\\frac{${fmt(stiff,3)}}{${fmt(mass,4)}}}\\approx ${fmt(w,4)}\\,\\mathrm{rad/s}$$\n\n$$T\\approx ${fmt(T,4)}\\,\\mathrm{s};\\quad f\\approx ${fmt(f,4)}\\,\\mathrm{Hz}$$\n\n### Giải thích\nCùng độ cứng, tăng khối lượng làm chu kỳ tăng. Cùng khối lượng, tăng độ cứng làm chu kỳ giảm.\n\n**Đây là lời giải công thức offline, không phải AI.**`;
  }
  latestParams=null;
  if(/(?:\bk\b|độ cứng)\s*(?:=|là|:)\s*\d+(?:[.,]\d+)?\s*\/\s*m\b/i.test(lower))return 'Mình thấy bạn nhập k = 50/m, bị thiếu đơn vị N. Hãy sửa thành k = 50 N/m rồi bấm “Hỏi Springy” lại nhé. Khi chưa bật AI, chế độ offline chỉ giải những dạng công thức được lập trình sẵn.';
@@ -130,6 +142,15 @@ function renderTutorRich(content,target){
   node.replaceWith(frag);
  }
  const mj=window.MathJax;
+ if(!mj?.typesetPromise && math.length){
+  // Retry when external MathJax script has not finished loading yet.
+  let attempts=0;
+  const retry=setInterval(()=>{
+   attempts++;
+   if(window.MathJax?.typesetPromise){clearInterval(retry);window.MathJax.typesetPromise([target]).catch(console.warn);}
+   else if(attempts>=15){clearInterval(retry);console.warn('Springy: MathJax CDN unavailable');}
+  },600);
+ }
  if(mj?.typesetPromise){
   Promise.resolve(mj.startup?.promise).then(()=>{
    mj.typesetClear?.([target]);return mj.typesetPromise([target]);
@@ -137,7 +158,7 @@ function renderTutorRich(content,target){
  }
 }
 function putTutor(text,source){let output=el('tutorOutput');output.replaceChildren();let head=document.createElement('p');head.className='ai-warning';head.textContent=source;let response=document.createElement('div');response.className='ai-output-text solution-block';output.append(head,response);renderTutorRich(text,response);}
-el('tutorAsk').onclick=async()=>{const problem=el('tutorProblem').value.trim(),mode=el('tutorMode').value;if(!problem&&!imgData){alert('Hãy nhập đề bài hoặc chọn ảnh.');return;}el('tutorAsk').disabled=true;el('tutorStatus').textContent='✦ Springy đang phân tích...';latestParams=null;try{let result=await fetch('/api/tutor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({problem,mode,image:imgData})});let body=await result.json();if(!result.ok)throw new Error(body.error||'Lỗi gọi AI');putTutor(body.answer,'✦ Springy AI · Gemini 2.5 Flash-Lite');el('tutorStatus').textContent='AI có thể mắc lỗi. Hãy kiểm tra công thức và kết quả.';if(body.simulation&&Number.isFinite(body.simulation.mass)&&Number.isFinite(body.simulation.k))latestParams=body.simulation;}catch(e){if(imgData){putTutor('Chế độ offline không đọc được ảnh.\nNguyên nhân AI chưa hoạt động: '+e.message,'✦ Gemini API chưa sẵn sàng');}else{putTutor('⚠ Gemini chưa phản hồi: '+e.message+'\n\n--- Bộ giải quy tắc dự phòng ---\n'+offlineSolve(problem,mode),'✦ Chế độ quy tắc offline (KHÔNG phải AI đã huấn luyện)');}el('tutorStatus').textContent='AI chưa khả dụng: '+e.message;}finally{el('tutorAsk').disabled=false;el('tutorSimulate').disabled=!latestParams;}};
+el('tutorAsk').onclick=async()=>{const problem=el('tutorProblem').value.trim(),mode=el('tutorMode').value;if(!problem&&!imgData){alert('Hãy nhập đề bài hoặc chọn ảnh.');return;}el('tutorAsk').disabled=true;el('tutorStatus').textContent='✦ Springy đang phân tích...';latestParams=null;try{let result=await fetch('/api/tutor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({problem,mode,image:imgData})});let body=await result.json();if(!result.ok)throw new Error(body.error||'Lỗi gọi AI');putTutor(body.answer,'✦ Springy AI · Gemini ('+(body.model||'online')+')');el('tutorStatus').textContent='AI có thể mắc lỗi. Hãy kiểm tra công thức và kết quả.';if(body.simulation&&Number.isFinite(body.simulation.mass)&&Number.isFinite(body.simulation.k))latestParams=body.simulation;}catch(e){if(imgData){putTutor('Chế độ offline không đọc được ảnh.\nNguyên nhân AI chưa hoạt động: '+e.message,'✦ Gemini API chưa sẵn sàng');}else{putTutor('⚠ Gemini chưa phản hồi: '+e.message+'\n\n--- Bộ giải quy tắc dự phòng ---\n'+offlineSolve(problem,mode),'✦ Chế độ quy tắc offline (KHÔNG phải AI đã huấn luyện)');}el('tutorStatus').textContent='AI chưa khả dụng: '+e.message;}finally{el('tutorAsk').disabled=false;el('tutorSimulate').disabled=!latestParams;}};
 el('tutorSimulate').onclick=()=>{if(!latestParams)return;navigate('sim');if(el('mass')){el('mass').value=Math.max(Number(el('mass').min)||10,Math.min(Number(el('mass').max)||1000,latestParams.mass));el('mass').dispatchEvent(new Event('input',{bubbles:true}));}if(el('k')){el('k').value=Math.max(Number(el('k').min)||1,Math.min(Number(el('k').max)||1000,latestParams.k));el('k').dispatchEvent(new Event('input',{bubbles:true}));}el('simControls')?.scrollIntoView({behavior:'smooth',block:'center'});};
 el('tutorClear').onclick=()=>{el('tutorProblem').value='';el('tutorImage').value='';imgData=null;latestParams=null;el('tutorSimulate').disabled=true;el('tutorFileName').textContent='';el('tutorOutput').textContent='Springy sẵn sàng nhận câu hỏi mới ♡';};
 })();
