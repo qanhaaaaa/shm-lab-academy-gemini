@@ -76,7 +76,67 @@ function offlineSolve(problem,mode){
  return `Chế độ offline chỉ giải tự động được bài con lắc lò xo có cả m (g/kg) và k (N/m), ví dụ: “m = 200 g, k = 50 N/m. Tính T, f, ω.”\nBài phức tạp hoặc ảnh đề cần AI: cấu hình GEMINI_API_KEY trong Vercel (hoặc môi trường Node.js khi chạy trên máy). Không nhập API key vào website.`;
 }
 
-function putTutor(text,source){let output=el('tutorOutput');output.replaceChildren();let head=document.createElement('p');head.className='ai-warning';head.textContent=source;let response=document.createElement('div');response.className='ai-output-text solution-block';response.textContent=text;output.append(head,response);}
+// Springy rich answers: works even if Markdown libraries are unavailable.
+// Every part of model text is escaped or sanitized. Math is isolated before Markdown
+ // so TeX backslashes and underscores are never eaten by Markdown parsing.
+function escapeTutorHTML(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function fallbackTutorMarkdown(text){
+ const inline=(s)=>{
+  s=escapeTutorHTML(s);
+  s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s=s.replace(/\*\*([^\n*]+)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/\*([^\n*]+)\*/g,'<em>$1</em>');
+  return s;
+ };
+ const lines=text.replace(/\r\n?/g,'\n').split('\n');let html='',list='',paragraph=[];
+ const flushParagraph=()=>{if(paragraph.length){html+='<p>'+paragraph.map(inline).join('<br>')+'</p>';paragraph=[];}};
+ const flushList=()=>{if(list){html+='</'+list+'>';list='';}};
+ for(const line of lines){
+  if(/^\s*$/.test(line)){flushParagraph();flushList();continue;}
+  const heading=/^\s{0,3}(#{1,4})\s+(.+)$/.exec(line);
+  if(heading){flushParagraph();flushList();const n=heading[1].length;html+='<h'+n+'>'+inline(heading[2])+'</h'+n+'>';continue;}
+  if(/^\s*---+\s*$/.test(line)){flushParagraph();flushList();html+='<hr>';continue;}
+  const bullet=/^\s*[-*+]\s+(.+)$/.exec(line),number=/^\s*\d+[.)]\s+(.+)$/.exec(line);
+  if(bullet||number){flushParagraph();const wanted=bullet?'ul':'ol';if(list!==wanted){flushList();html+='<'+wanted+'>';list=wanted;}html+='<li>'+inline((bullet||number)[1])+'</li>';continue;}
+  flushList();paragraph.push(line);
+ }
+ flushParagraph();flushList();return html;
+}
+function renderTutorRich(content,target){
+ const raw=String(content??'');const math=[];
+ const stash=(tex,display)=>{const id='SHMMATHTOKEN'+math.length+'END';math.push({tex,display});return id;};
+ // Store code fences as safe HTML tokens before detecting math.
+ const code=[];let text=raw.replace(/```([^\n`]*)\n([\s\S]*?)```/g,(_,lang,body)=>{
+  const id='SHMCODETOKEN'+code.length+'END';code.push('<pre><code>'+escapeTutorHTML(body)+'</code></pre>');return id;
+ });
+ // MathJax formats: $$...$$, \\[...\\], \\(...\\), $...$ (single-line).
+ text=text.replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([^\n]+?)\\\)|(?<!\$)\$([^\n$]+?)\$(?!\$)/g,
+ (_,a,b,c,d)=>stash(a??b??c??d,a!==undefined||b!==undefined));
+ // These delimiters are already isolated; the outer markup does not get trusted.
+ const html=window.marked&&window.DOMPurify
+  ?window.DOMPurify.sanitize(window.marked.parse(text,{gfm:true,breaks:true}),{USE_PROFILES:{html:true}})
+  :fallbackTutorMarkdown(text);
+ target.innerHTML=html;
+ const walker=document.createTreeWalker(target,NodeFilter.SHOW_TEXT);const edits=[];
+ while(walker.nextNode())if(/SHM(?:MATH|CODE)TOKEN\d+END/.test(walker.currentNode.nodeValue))edits.push(walker.currentNode);
+ for(const node of edits){
+  const frag=document.createDocumentFragment();const parts=node.nodeValue.split(/(SHM(?:MATH|CODE)TOKEN\d+END)/g);
+  for(const part of parts){let m=/^SHMMATHTOKEN(\d+)END$/.exec(part);
+   if(m){const item=math[Number(m[1])];if(item){const span=document.createElement(item.display?'div':'span');span.className=item.display?'shm-math-display':'shm-math-inline';span.textContent=(item.display?'\\[':'\\(')+item.tex+(item.display?'\\]':'\\)');frag.append(span);continue;}}
+   m=/^SHMCODETOKEN(\d+)END$/.exec(part);
+   if(m){const tpl=document.createElement('template');tpl.innerHTML=code[Number(m[1])]||'';frag.append(tpl.content.cloneNode(true));continue;}
+   frag.append(document.createTextNode(part));
+  }
+  node.replaceWith(frag);
+ }
+ const mj=window.MathJax;
+ if(mj?.typesetPromise){
+  Promise.resolve(mj.startup?.promise).then(()=>{
+   mj.typesetClear?.([target]);return mj.typesetPromise([target]);
+  }).catch(err=>console.warn('Springy MathJax rendering:',err));
+ }
+}
+function putTutor(text,source){let output=el('tutorOutput');output.replaceChildren();let head=document.createElement('p');head.className='ai-warning';head.textContent=source;let response=document.createElement('div');response.className='ai-output-text solution-block';output.append(head,response);renderTutorRich(text,response);}
 el('tutorAsk').onclick=async()=>{const problem=el('tutorProblem').value.trim(),mode=el('tutorMode').value;if(!problem&&!imgData){alert('Hãy nhập đề bài hoặc chọn ảnh.');return;}el('tutorAsk').disabled=true;el('tutorStatus').textContent='✦ Springy đang phân tích...';latestParams=null;try{let result=await fetch('/api/tutor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({problem,mode,image:imgData})});let body=await result.json();if(!result.ok)throw new Error(body.error||'Lỗi gọi AI');putTutor(body.answer,'✦ Springy AI · Gemini 2.5 Flash-Lite');el('tutorStatus').textContent='AI có thể mắc lỗi. Hãy kiểm tra công thức và kết quả.';if(body.simulation&&Number.isFinite(body.simulation.mass)&&Number.isFinite(body.simulation.k))latestParams=body.simulation;}catch(e){if(imgData){putTutor('Chế độ offline không đọc được ảnh.\nNguyên nhân AI chưa hoạt động: '+e.message,'✦ Gemini API chưa sẵn sàng');}else{putTutor('⚠ Gemini chưa phản hồi: '+e.message+'\n\n--- Bộ giải quy tắc dự phòng ---\n'+offlineSolve(problem,mode),'✦ Chế độ quy tắc offline (KHÔNG phải AI đã huấn luyện)');}el('tutorStatus').textContent='AI chưa khả dụng: '+e.message;}finally{el('tutorAsk').disabled=false;el('tutorSimulate').disabled=!latestParams;}};
 el('tutorSimulate').onclick=()=>{if(!latestParams)return;navigate('sim');if(el('mass')){el('mass').value=Math.max(Number(el('mass').min)||10,Math.min(Number(el('mass').max)||1000,latestParams.mass));el('mass').dispatchEvent(new Event('input',{bubbles:true}));}if(el('k')){el('k').value=Math.max(Number(el('k').min)||1,Math.min(Number(el('k').max)||1000,latestParams.k));el('k').dispatchEvent(new Event('input',{bubbles:true}));}el('simControls')?.scrollIntoView({behavior:'smooth',block:'center'});};
 el('tutorClear').onclick=()=>{el('tutorProblem').value='';el('tutorImage').value='';imgData=null;latestParams=null;el('tutorSimulate').disabled=true;el('tutorFileName').textContent='';el('tutorOutput').textContent='Springy sẵn sàng nhận câu hỏi mới ♡';};
