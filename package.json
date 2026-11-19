@@ -1,0 +1,12 @@
+{
+  "name": "shm-lab-academy",
+  "private": true,
+  "version": "2.1.0",
+  "description": "SHM Lab & Academy Vercel static frontend + serverless AI tutor",
+  "scripts": {
+    "start": "node local/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
